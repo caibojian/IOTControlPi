@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<configuration scan="true" scanPeriod="60 seconds" debug="false">
+	<!-- 打印到控制台 -->
+	<appender name="stdout" class="ch.qos.logback.core.ConsoleAppender">
+		<layout class="ch.qos.logback.classic.PatternLayout">
+			<pattern>%d{HH:mm:ss.SSS} [%thread] %-5level %logger{40} - %M - %L - %msg%n
+			</pattern>
+		</layout>
+	</appender>	
+	<!-- 把日志写入mysql数据库中 -->
+	<appender name="db-classic-mysql" class="ch.qos.logback.classic.db.DBAppender">
+		<connectionSource
+			class="ch.qos.logback.core.db.DriverManagerConnectionSource">
+			<driverClass>com.mysql.jdbc.Driver</driverClass>
+			<url>jdbc:mysql://10.1.20.177:3306/gap_log?useUnicode=true&amp;characterEncoding=UTF-8</url>
+			<user>root</user>
+			<password>cai</password>
+		</connectionSource>
+	</appender>
+	
+	<root level="INFO">
+		<appender-ref ref="stdout" />
+		<appender-ref ref="db-classic-mysql" />	
+	</root>
+</configuration>
