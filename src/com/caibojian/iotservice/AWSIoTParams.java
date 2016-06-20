@@ -4,7 +4,7 @@ package com.caibojian.iotservice;
 public class AWSIoTParams {
 
 	private String message 			= null;
-	private int qos					= 0;
+	private int qos					= 1;
 	private String topic 			= null;
 	private String eventsFile		= null;
 	private AWSIoTConfig awsConfig     = null;

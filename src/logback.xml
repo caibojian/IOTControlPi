@@ -7,7 +7,7 @@
 			</pattern>
 		</layout>
 	</appender>	
-	<!-- 把日志写入mysql数据库中 -->
+	<!-- 把日志写入mysql数据库中 
 	<appender name="db-classic-mysql" class="ch.qos.logback.classic.db.DBAppender">
 		<connectionSource
 			class="ch.qos.logback.core.db.DriverManagerConnectionSource">
@@ -17,7 +17,7 @@
 			<password>cai</password>
 		</connectionSource>
 	</appender>
-	
+	-->
 	<root level="INFO">
 		<appender-ref ref="stdout" />
 		<appender-ref ref="db-classic-mysql" />	

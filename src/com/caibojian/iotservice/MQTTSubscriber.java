@@ -1,9 +1,18 @@
+/** 
+ * Copyright 2015 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License"). You may not use 
+ * this file except in compliance with the License. A copy of the License is located at
+ *
+ *     http://aws.amazon.com/apache2.0/
+ *
+ * or in the "license" file accompanying this file. This file is distributed on an "AS IS"
+ * BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the 
+ * License for the specific language governing permissions and limitations under the License.
+ */
+
 package com.caibojian.iotservice;
 
-import java.sql.Timestamp;
-import java.util.ArrayList;
-import java.util.Date;
-import java.util.List;
 import java.util.Random;
 
 import org.apache.commons.logging.Log;
@@ -13,17 +22,20 @@ import org.eclipse.paho.client.mqttv3.IMqttDeliveryToken;
 import org.eclipse.paho.client.mqttv3.IMqttToken;
 import org.eclipse.paho.client.mqttv3.MqttAsyncClient;
 import org.eclipse.paho.client.mqttv3.MqttCallback;
-import org.eclipse.paho.client.mqttv3.MqttClient;
 import org.eclipse.paho.client.mqttv3.MqttConnectOptions;
 import org.eclipse.paho.client.mqttv3.MqttException;
 import org.eclipse.paho.client.mqttv3.MqttMessage;
-import org.eclipse.paho.client.mqttv3.MqttPersistenceException;
 import org.eclipse.paho.client.mqttv3.persist.MemoryPersistence;
 
 import com.caibojian.IOTCallbackInterface;
 
-public class AWSIoTConsumer extends AWSIoTBase{
-
+/**
+ * This class encapsulates the MQTT functionality for subscribing to a topic.
+ * 
+ * @author Fabio Silva (silfabio@amazon.com)
+ */
+public class MQTTSubscriber implements MqttCallback, Runnable {
+	private AWSIoTParams params = new AWSIoTParams();
 	private Log log = LogFactory.getLog(MQTTSubscriber.class);
 	IOTCallbackInterface callback;
 	int state = BEGIN;
@@ -34,75 +46,91 @@ public class AWSIoTConsumer extends AWSIoTBase{
 	static final int FINISH = 4;
 	static final int ERROR = 5;
 	static final int DISCONNECT = 6;
-	static final int PUBLISHED = 7;
-	public MqttAsyncClient client;
-	private  MqttAsyncClient publisher = null;
+	private String threadName = "";
+	private String topic = "";
+	private int qos = 1;
+	private String clientId = "";
+	private String rootCA = "";
+	private String privateKey = "";
+	private String certificate = "";
+	MqttAsyncClient client;
 	String brokerUrl;
+	private MqttConnectOptions conOpt;
 	private boolean clean;
 	Throwable ex = null;
 	Object waiter = new Object();
 	boolean donext = false;
-	
-	private  MqttClient consumer = null;
-	private AWSIoTParams params = new AWSIoTParams();
-	private MqttConnectOptions conOpt = new MqttConnectOptions();
-	
-	public AWSIoTConsumer(IOTCallbackInterface callback)  {
-		super();
-		this.callback = callback;
-		AWSIoTConfig awsConfig = null;
-			awsConfig = ConfigLoader.loadConfig();
-		params.setMessage("Hello AWS Iot"); // default message if no events file
-		params.setQos(0);
-		params.setAwsConfig(awsConfig);
-		conOpt.setCleanSession(true);
-		conOpt.setSocketFactory(SslUtil.getSocketFactory(params.getAwsConfig().getRootCA(),
-				params.getAwsConfig().getCertificate(), params.getAwsConfig().getPrivateKey(), "password"));
-		System.out.println(String.format("Subscribing to broker %s: ", params.getAwsConfig().getUrl()));
-		
-		try {
-			client = new MqttAsyncClient(params.getAwsConfig().getUrl(),
-					String.format("clientId %d", new Random().nextInt(100)), new MemoryPersistence());
-			client.setCallback(this);
-			publisher= new MqttAsyncClient(params.getAwsConfig().getUrl(),
-					String.format("clientId %d", new Random().nextInt(100)), new MemoryPersistence());
-			publisher.setCallback(this);
-		} catch (MqttException e) {
-			e.printStackTrace();
-		}
-	}
 
-	public void subscribe(String topic) {
+	public void run() {
 		try {
-			this.subscribe(topic, params.getQos());
-			new Thread(new Runnable() {
-				public void run() {
-				}
-			}).start();
-		} catch (Throwable e) {
-			// TODO Auto-generated catch block
-			e.printStackTrace();
-		}
-		System.out.println("Subscribing to topic :"+topic);
-	}
-	
-	public void publish(String topic, String message) {
-		try {
-			System.out.println("Starting topic: " +topic+"--"+message);
-			this.publish(topic, params.getQos(), message.getBytes());
-			System.out.println("published："+message);
+			log.debug("Starting Thread: " + threadName);
+			this.subscribe(topic, qos);
 		} catch (Throwable e) {
 			log.error(e.toString());
 			e.printStackTrace();
 		} finally {
-			log.debug("Finishing Thread: " +topic+"--"+message);
+			log.debug("Finishing Thread: " + threadName);
 		}
 	}
 
-	public boolean isConnected() throws Exception {
-		return client.isConnected();
+	/**
+	 * Constructs an instance of the sample client wrapper
+	 * 
+	 * @param brokerUrl
+	 *            the url to connect to
+	 * @param clientId
+	 *            the client id to connect with
+	 * @param cleanSession
+	 *            clear state at end of connection or not (durable or
+	 *            non-durable subscriptions)
+	 * @throws MqttException
+	 */
+	public MQTTSubscriber(IOTCallbackInterface callback, boolean cleanSession, String clientId ,String topic)
+			throws MqttException {
+		AWSIoTConfig awsConfig = null;
+			awsConfig = ConfigLoader.loadConfig();
+		params.setAwsConfig(awsConfig);
+		this.callback = callback;
+		this.qos = params.getQos();
+		this.topic = topic;
+		this.brokerUrl = params.getAwsConfig().getUrl();
+		this.clientId = clientId;
+		this.threadName = clientId;
+		this.clean = cleanSession;
+		this.rootCA = params.getAwsConfig().getRootCA();
+		this.privateKey = params.getAwsConfig().getPrivateKey();
+		this.certificate = params.getAwsConfig().getCertificate();
+		MemoryPersistence dataStore = new MemoryPersistence();
+
+		try {
+			// Construct the object that contains connection parameters
+			// such as cleanSession and LWT
+			conOpt = new MqttConnectOptions();
+			conOpt.setCleanSession(clean);
+
+			try {
+				conOpt.setSocketFactory(SslUtil.getSocketFactory(
+						this.rootCA, this.certificate, this.privateKey,
+						"password"));
+			} catch (Exception e) {
+				e.printStackTrace();
+			}
+
+			// Construct the MqttClient instance
+			client = new MqttAsyncClient(this.brokerUrl, this.clientId,
+					dataStore);
+
+			// Set this wrapper as the callback handler
+			client.setCallback(this);
+
+		} catch (MqttException e) {
+			e.printStackTrace();
+			log.error("Unable to set up client: " + e.toString());
+			System.exit(1);
+			// TODO: retry code
+		}
 	}
-	
+
 	/**
 	 * Wait for a maximum amount of time for a state change event to occur
 	 * 
@@ -127,7 +155,7 @@ public class AWSIoTConsumer extends AWSIoTBase{
 			donext = false;
 		}
 	}
-	
+
 	/**
 	 * Subscribe to a topic on an MQTT server Once subscribed this method waits
 	 * for the messages to arrive from the server that match the subscription.
@@ -164,7 +192,9 @@ public class AWSIoTConsumer extends AWSIoTBase{
 				disc.doDisconnect();
 				break;
 			case ERROR:
-				throw ex;
+				MqttConnector recon = new MqttConnector();
+				recon.doConnect();
+				break;
 			case DISCONNECTED:
 				state = FINISH;
 				donext = true;
@@ -176,59 +206,7 @@ public class AWSIoTConsumer extends AWSIoTBase{
 		}
 		// }
 	}
-	
-	/**
-	 * Publish / send a message to an MQTT server
-	 * 
-	 * @param topicName
-	 *            the name of the topic to publish to
-	 * @param qos
-	 *            the quality of service to delivery the message at (0,1,2)
-	 * @param payload
-	 *            the set of bytes to send to the MQTT server
-	 * @throws MqttException
-	 */
-	public void publish(String topicName, int qos, byte[] payload)
-			throws Throwable {
-		// Use a state machine to decide which step to do next. State change
-		// occurs
-		// when a notification is received that an MQTT action has completed
-		while (state != FINISH) {
-			System.out.println("publish连接状态-"+topicName+"："+state);
-			switch (state) {
-			case BEGIN:
-				// Connect using a non-blocking connect
-				MqttConnector con = new MqttConnector();
-				con.doConnect();
-				break;
-			case CONNECTED:
-				// Publish using a non-blocking publisher
-				Publisher pub = new Publisher();
-				pub.doPublish(topicName, qos, payload);
-				break;
-			case PUBLISHED:
-				Thread.sleep(2000);
-				state = DISCONNECT;
-				donext = true;
-				break;
-			case DISCONNECT:
-				Disconnector disc = new Disconnector();
-				disc.doDisconnect();
-				break;
-			case ERROR:
-				throw ex;
-			case DISCONNECTED:
-				state = FINISH;
-				donext = true;
-				break;
-			}
 
-			if (state != FINISH) {
-				waitForStateChange(30000);
-			}
-		}
-	}
-	
 	/****************************************************************/
 	/* Methods to implement the MqttCallback interface */
 	/****************************************************************/
@@ -263,7 +241,7 @@ public class AWSIoTConsumer extends AWSIoTBase{
 				+ " received from topic " + topic);
 		callback.processMessage(stringMessage, topic);
 	}
-	
+
 	/**
 	 * Connect in a non-blocking way and then sit back and wait to be notified
 	 * that the action has completed.
@@ -282,6 +260,7 @@ public class AWSIoTConsumer extends AWSIoTBase{
 			IMqttActionListener conListener = new IMqttActionListener() {
 				public void onSuccess(IMqttToken asyncActionToken) {
 					log.debug("Connected");
+					System.out.println("Connected");
 					state = CONNECTED;
 					carryOn();
 				}
@@ -291,6 +270,7 @@ public class AWSIoTConsumer extends AWSIoTBase{
 					ex = exception;
 					state = ERROR;
 					log.debug("Connect Failed: " + exception);
+					System.out.println("Connect Failed: " + exception);
 					carryOn();
 				}
 
@@ -310,13 +290,14 @@ public class AWSIoTConsumer extends AWSIoTBase{
 				// thrown if validation of parms fails or other checks such
 				// as already connected fail.
 				e.printStackTrace();
-				log.debug("Connect Failed: " + e);
+				System.out.println("Connect Failed: " + e);
 				state = ERROR;
-				donext = true;
-				ex = e;
+				donext = false;
+//				ex = e;
 			}
 		}
 	}
+
 	/**
 	 * Subscribe in a non-blocking way and then sit back and wait to be notified
 	 * that the action has completed.
@@ -357,66 +338,12 @@ public class AWSIoTConsumer extends AWSIoTBase{
 			} catch (MqttException e) {
 				e.printStackTrace();
 				state = ERROR;
-				donext = true;
-				ex = e;
+				donext = false;
+//				ex = e;
 			}
 		}
 	}
-	
-	/**
-	 * Publish in a non-blocking way and then sit back and wait to be notified
-	 * that the action has completed.
-	 */
-	public class Publisher {
-		public void doPublish(String topicName, int qos, byte[] payload) {
-			// Send / publish a message to the server
-			// Get a token and setup an asynchronous listener on the token which
-			// will be notified once the message has been delivered
-			MqttMessage message = new MqttMessage(payload);
-			message.setQos(qos);
 
-			log.debug("Publishing message " + message + " to topic "
-					+ topicName);
-
-			// Setup a listener object to be notified when the publish
-			// completes.
-			//
-			IMqttActionListener pubListener = new IMqttActionListener() {
-				public void onSuccess(IMqttToken asyncActionToken) {
-					log.debug("Message Published");
-					state = PUBLISHED;
-					carryOn();
-				}
-
-				public void onFailure(IMqttToken asyncActionToken,
-						Throwable exception) {
-					ex = exception;
-					state = ERROR;
-					log.debug("Publish failed: " + exception);
-					carryOn();
-				}
-
-				public void carryOn() {
-					synchronized (waiter) {
-						donext = true;
-						waiter.notifyAll();
-					}
-				}
-			};
-
-			try {
-				// Publish the message
-				client.publish(topicName, message, "AmazonThing Pub context",
-						pubListener);
-			} catch (MqttException e) {
-				e.printStackTrace();
-				state = ERROR;
-				donext = true;
-				ex = e;
-			}
-		}
-	}
-	
 	/**
 	 * Disconnect in a non-blocking way and then sit back and wait to be
 	 * notified that the action has completed.
@@ -459,5 +386,4 @@ public class AWSIoTConsumer extends AWSIoTBase{
 			}
 		}
 	}
-
 }
